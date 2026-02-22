@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Patcher status / verify checklist
+    url: https://github.com/Just-Boring-Cat/codex-thread-renamer#commands
+    about: Run status and verify first, many compatibility issues are caught there.

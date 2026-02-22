@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest a new capability or improvement for the patcher
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the feature request.
+
+        Please describe the user workflow first, then the proposed implementation idea (if any).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that is not possible or is too hard today?
+      placeholder: I want to...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work from a user perspective?
+      placeholder: Add a right-click option / command that...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds or other approaches you tried
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Rename flow
+        - Thread list UI / webview helper
+        - Runtime patch / command registration
+        - Patcher CLI (status/verify/apply)
+        - Compatibility / versioning
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: breaking_risk
+    attributes:
+      label: Potential risk level (your estimate)
+      options:
+        - Low (small UX/documentation change)
+        - Medium (patch logic change)
+        - High (webview/runtime hook changes)
+        - Not sure
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Screenshots, references, or implementation notes

@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a bug or regression in the patcher or patched rename behavior
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+
+        Before submitting, please run:
+        - `node bin/codex-thread-renamer-patch.js status`
+        - `node bin/codex-thread-renamer-patch.js verify`
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Short description of the bug
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List exact steps so the behavior can be reproduced
+      placeholder: |
+        1. Open Codex sidebar
+        2. Right click a thread title
+        3. Click Rename Codex Thread
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: extension_channel
+    attributes:
+      label: OpenAI extension channel
+      options:
+        - Stable (release)
+        - Pre-release
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: openai_ext_version
+    attributes:
+      label: OpenAI extension version
+      placeholder: "Example: 0.4.76"
+  - type: input
+    id: vscode_version
+    attributes:
+      label: VS Code version
+      placeholder: "Example: 1.97.0"
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Example: macOS 15.3"
+  - type: textarea
+    id: patch_status
+    attributes:
+      label: Patcher status output
+      description: Paste output from `status` and/or `verify`
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / errors
+      description: Include `Codex Thread Renamer Patch` output channel or DevTools console if available
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Screenshots, workarounds, related changes, etc.
