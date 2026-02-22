@@ -1,14 +1,23 @@
-<h1 align="center">
-  <img src="images/openAI_Logo.png" alt="OpenAI logo" width="56" /> Codex Thread Renamer
-</h1>
+<table align="center">
+  <tr>
+    <td valign="middle">
+      <img src="images/openAI_Logo.png" alt="OpenAI logo" width="52" />
+    </td>
+    <td valign="middle">
+      <h1>Codex Thread Renamer</h1>
+    </td>
+  </tr>
+</table>
 
 <p align="center"><strong>Thread renamer for OpenAI ChatGPT/Codex VS Code extension</strong></p>
 
-![GitHub release](https://img.shields.io/github/v/release/Just-Boring-Cat/codex-thread-renamer?label=release)
-![License](https://img.shields.io/github/license/Just-Boring-Cat/codex-thread-renamer)
-![Last commit](https://img.shields.io/github/last-commit/Just-Boring-Cat/codex-thread-renamer)
-![Repo size](https://img.shields.io/github/repo-size/Just-Boring-Cat/codex-thread-renamer)
-![VS Code](https://img.shields.io/badge/VS%20Code-patcher-blue)
+<p align="center">
+  <img alt="GitHub release" src="https://img.shields.io/github/v/release/Just-Boring-Cat/codex-thread-renamer?label=release" />
+  <img alt="License" src="https://img.shields.io/github/license/Just-Boring-Cat/codex-thread-renamer" />
+  <img alt="Last commit" src="https://img.shields.io/github/last-commit/Just-Boring-Cat/codex-thread-renamer" />
+  <img alt="Repo size" src="https://img.shields.io/github/repo-size/Just-Boring-Cat/codex-thread-renamer" />
+  <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-patcher-blue" />
+</p>
 
 Patch the installed VS Code `openai.chatgpt` extension so you can rename Codex threads from the UI.
 
