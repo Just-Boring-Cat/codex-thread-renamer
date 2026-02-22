@@ -94,6 +94,16 @@ Optional flags:
   - [Issue #1](https://github.com/Just-Boring-Cat/codex-thread-renamer/issues/1)
   - [CHANGELOG.md](CHANGELOG.md)
 
+## Contributing
+
+Contributions are welcome.
+
+- You can fork the repo and open a pull request.
+- You can also contribute directly with a branch and pull request if you have access.
+- Please do not push directly to `main`, the repo uses PR-first protection.
+- If you are not sure where to start, open an issue or pick an existing one:
+  - [Issues](https://github.com/Just-Boring-Cat/codex-thread-renamer/issues)
+
 ## License
 
 [LICENSE](LICENSE)
