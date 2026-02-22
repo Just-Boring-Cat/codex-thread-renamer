@@ -1,4 +1,4 @@
-# Codex Thread Renamer VS Code Extension
+# Codex Thread Renamer for OpenAI ChatGPT/Codex VS Code extension
 
 ![GitHub release](https://img.shields.io/github/v/release/Just-Boring-Cat/codex-thread-renamer?label=release)
 ![License](https://img.shields.io/github/license/Just-Boring-Cat/codex-thread-renamer)
