@@ -1,4 +1,4 @@
-# Codex Thread Renamer Patcher VS Code Extension
+# Codex Thread Renamer VS Code Extension
 
 ![GitHub release](https://img.shields.io/github/v/release/Just-Boring-Cat/codex-thread-renamer?label=release)
 ![License](https://img.shields.io/github/license/Just-Boring-Cat/codex-thread-renamer)
@@ -7,6 +7,19 @@
 ![VS Code](https://img.shields.io/badge/VS%20Code-patcher-blue)
 
 Patch the installed VS Code `openai.chatgpt` extension so you can rename Codex threads from the UI.
+
+## Prerequisites
+
+Install these before using the patcher:
+
+- VS Code
+- OpenAI ChatGPT/Codex VS Code extension (`openai.chatgpt`) installed
+- Node.js (used to run the patcher CLI)
+- `sqlite3` CLI available in `PATH` (used by the runtime patch for cache fallback patching)
+
+Recommended:
+
+- `git` (for updating/reapplying the patcher repo)
 
 ## Important
 
@@ -68,16 +81,19 @@ Optional flags:
 
 ## Docs
 
-- Technical internals: `docs/how-it-works.md`
-- Testing and troubleshooting: `docs/testing-and-troubleshooting.md`
-- Release history: `CHANGELOG.md`
+- [Technical internals](docs/how-it-works.md)
+- [Testing and troubleshooting](docs/testing-and-troubleshooting.md)
+- [Release history](CHANGELOG.md)
 
 ## Known Issue
 
 - Canceling the rename prompt currently shows:
   - `Codex rename patch: Rename cancelled.`
-- This is a UX issue only, it is tracked and documented in `CHANGELOG.md`.
+- This is a UX issue only.
+- Tracked in:
+  - [Issue #1](https://github.com/Just-Boring-Cat/codex-thread-renamer/issues/1)
+  - [CHANGELOG.md](CHANGELOG.md)
 
 ## License
 
-See `LICENSE`.
+[LICENSE](LICENSE)
