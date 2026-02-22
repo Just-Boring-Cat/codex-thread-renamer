@@ -1,4 +1,8 @@
-# Codex Thread Renamer for OpenAI ChatGPT/Codex VS Code extension
+<h1 align="center">
+  <img src="images/openAI_Logo.png" alt="OpenAI logo" width="56" /> Codex Thread Renamer
+</h1>
+
+<p align="center"><strong>Thread renamer for OpenAI ChatGPT/Codex VS Code extension</strong></p>
 
 ![GitHub release](https://img.shields.io/github/v/release/Just-Boring-Cat/codex-thread-renamer?label=release)
 ![License](https://img.shields.io/github/license/Just-Boring-Cat/codex-thread-renamer)
