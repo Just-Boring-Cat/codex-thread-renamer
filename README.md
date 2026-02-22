@@ -1,13 +1,4 @@
-<table align="center">
-  <tr>
-    <td valign="middle">
-      <img src="images/openAI_Logo.png" alt="OpenAI logo" width="52" />
-    </td>
-    <td valign="middle">
-      <h1>Codex Thread Renamer</h1>
-    </td>
-  </tr>
-</table>
+<h1 align="center"><sub><img src="images/openAI_Logo.png" alt="OpenAI logo" width="52" /></sub> Codex Thread Renamer</h1>
 
 <p align="center"><strong>Thread renamer for OpenAI ChatGPT/Codex VS Code extension</strong></p>
 
