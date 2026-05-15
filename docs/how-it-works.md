@@ -51,7 +51,7 @@ The patcher injects a helper script tag into `webview/index.html`:
 
 The helper runs inside the Codex webview and adds:
 
-- `data-vscode-context` markers on thread rows so VS Code can show `Rename Thread` only there
+- `data-vscode-context` markers on thread rows so VS Code can show `Rename Thread in Codex Sidebar` only there
 - right-click context tracking for the selected thread without preventing the original menu
 - inline title editing
 - fallback command targeting when the current webview DOM does not expose a thread id

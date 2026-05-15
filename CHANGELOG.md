@@ -10,7 +10,7 @@ Compatibility update for newer `openai.chatgpt` extension builds.
 - Verification now excludes the injected helper bundle and checks the OpenAI webview's built-in thread rename signature.
 - Webview helper now supports newer `data-app-action-sidebar-thread-*` thread row/title attributes.
 - Inline rename flow and `Cmd+R` / `Ctrl+R` rename shortcut support.
-- Context-aware `Rename Thread` contribution for the original VS Code webview menu.
+- Context-aware `Rename Thread in Codex Sidebar` contribution for the original VS Code webview menu.
 
 ### Fixed
 
@@ -40,7 +40,7 @@ Initial working patcher release for adding live Codex thread rename support to t
   - patches workspace/global/Codex title caches
   - sends live `thread-title-updated` messages to Codex webviews
 - Injected webview helper (`webview/assets/codex-thread-renamer.patch.webview.js`) that:
-  - adds right-click `Rename Thread` on Codex thread titles
+  - adds right-click `Rename Thread in Codex Sidebar` on Codex thread titles
   - forwards rename requests through `open-vscode-command`
 ### Fixed During Development
 
