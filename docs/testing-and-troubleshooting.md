@@ -10,9 +10,14 @@
 3. Reload VS Code:
    - `Developer: Restart Extension Host` or reload window
 4. Test rename in two ways:
-   - Command Palette -> `Rename Codex Thread`
-   - Right-click a thread title -> `Rename Thread`
-5. Test persistence:
+   - Command Palette -> `Rename Codex Thread` inside a thread starts inline rename for the current thread
+   - Command Palette -> `Rename Codex Thread` outside a thread opens the thread picker
+   - Right-click a thread title -> `Rename Thread` in the original context menu
+   - `Cmd+R` / `Ctrl+R` in the Codex sidebar or conversation editor
+5. Confirm the original context menu remains available:
+   - `Rename Thread` appears above `New Thread`
+   - the existing Codex/OpenAI menu items are still present
+6. Test persistence:
    - switch threads and back
    - restart extension host
    - reopen the VS Code window
@@ -59,17 +64,17 @@ Fix:
 - Switch to another thread and back.
 - Check `Codex Thread Renamer Patch` output logs.
 
-## Cancel Prompt Shows Error Toast
+## Verify Fails After OpenAI Extension Update
 
-Current behavior:
+Likely cause:
 
-- Canceling the prompt shows `Codex rename patch: Rename cancelled.`
+- The installed OpenAI extension changed its bundled webview signatures.
 
-Status:
+Fix:
 
-- Known UX issue only (no functional failure)
-- Tracked in repo issues / changelog
-- Planned fix is to treat cancel as a silent no-op
+- Pull the latest patcher repo.
+- Run `node bin/codex-thread-renamer-patch.js verify` again before applying.
+- If verification still fails, update the verifier signatures before patching blindly.
 
 ## Useful Checks
 
