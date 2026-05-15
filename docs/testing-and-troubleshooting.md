@@ -12,10 +12,11 @@
 4. Test rename in two ways:
    - Command Palette -> `Rename Codex Thread` inside a thread starts inline rename for the current thread
    - Command Palette -> `Rename Codex Thread` outside a thread opens the thread picker
-   - Right-click a thread title -> `Rename Thread` in the original context menu
+   - Right-click a thread title -> `Rename Thread in Codex Sidebar` in the original context menu
    - `Cmd+R` / `Ctrl+R` in the Codex sidebar or conversation editor
 5. Confirm the original context menu remains available:
-   - `Rename Thread` appears above `New Thread`
+   - `Rename Thread in Codex Sidebar` and `New Thread in Codex Sidebar` appear when right-clicking outside a thread row
+   - `Rename Thread in Codex Sidebar` appears directly above `New Thread in Codex Sidebar`
    - the existing Codex/OpenAI menu items are still present
 6. Test persistence:
    - switch threads and back

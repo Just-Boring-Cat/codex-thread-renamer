@@ -46,12 +46,11 @@
   const THREAD_TITLE_SELECTOR = '[data-thread-title], [data-app-action-sidebar-thread-title]';
   const THREAD_REF_SELECTOR = 'a[href*="/local/"], a[href*="/remote/"]';
   const THREAD_ROW_SELECTOR = `${THREAD_REF_SELECTOR}, [data-app-action-sidebar-thread-row], [data-app-action-sidebar-thread-id], [data-conversation-id], [data-thread-id], [data-id], ${THREAD_TITLE_SELECTOR}`;
-  const THREAD_MARK_SELECTOR = '[data-app-action-sidebar-thread-row], [data-thread-title], [data-app-action-sidebar-thread-title]';
+  const THREAD_MARK_SELECTOR = `${THREAD_REF_SELECTOR}, [data-app-action-sidebar-thread-row], [data-app-action-sidebar-thread-id], [data-conversation-id], [data-thread-id], [data-thread-title], [data-app-action-sidebar-thread-title]`;
   const VSCODE_CONTEXT_ATTR = 'data-vscode-context';
   const VSCODE_CONTEXT_KEY = 'codexThreadRenamer';
   const VSCODE_CONTEXT_VALUE = 'thread';
   let lastKnownCurrentThread = null;
-  let lastKnownContextThread = null;
   let inlineEditor = null;
 
   function hideMenu() {
@@ -237,7 +236,6 @@
 
   function rememberContextThread(info) {
     const payload = buildThreadPayload(info);
-    lastKnownContextThread = payload ? { ...payload, at: Date.now() } : null;
     if (payload) {
       rememberCurrentThread(info);
     }
@@ -246,14 +244,17 @@
 
   function reportContextThread(info) {
     const payload = rememberContextThread(info);
-    if (!payload) return;
     const api = getVsCodeApi();
     if (!api) return;
     api.postMessage({
       type: 'open-vscode-command',
       command: 'chatgpt.renameThreadRememberContext',
-      args: [payload],
+      args: payload ? [payload] : [],
     });
+  }
+
+  function clearContextThread() {
+    reportContextThread(null);
   }
 
   function startInlineRenameForTarget(target) {
@@ -567,52 +568,8 @@
       return current;
     }
 
-    const selectors = [
-      'a[aria-current="page"][href*="/local/"]',
-      'a[aria-current="page"][href*="/remote/"]',
-      'a[aria-selected="true"][href*="/local/"]',
-      'a[aria-selected="true"][href*="/remote/"]',
-      '[data-thread-title][aria-current="page"]',
-      '[data-thread-title][aria-selected="true"]',
-      '[data-thread-title][data-active="true"]',
-      '[data-app-action-sidebar-thread-row][aria-current="page"]',
-      '[data-app-action-sidebar-thread-row][aria-selected="true"]',
-      '[data-app-action-sidebar-thread-row][data-active="true"]',
-      '[data-app-action-sidebar-thread-row][data-state="active"]',
-      '[data-app-action-sidebar-thread-title][aria-current="page"]',
-      '[data-app-action-sidebar-thread-title][aria-selected="true"]',
-      '[data-app-action-sidebar-thread-title][data-active="true"]',
-    ];
+    return null;
 
-    for (const selector of selectors) {
-      const node = document.querySelector(selector);
-      if (!node) continue;
-      if (node.matches && node.matches('[data-thread-title], [data-app-action-sidebar-thread-row], [data-app-action-sidebar-thread-title]')) {
-        const info = extractThreadInfo(node);
-        if (info.threadId) {
-          rememberCurrentThread(info);
-          return lastKnownCurrentThread;
-        }
-      }
-      const info = extractThreadInfoFromLink(node);
-      if (info && info.threadId) {
-        rememberCurrentThread(info);
-        return lastKnownCurrentThread;
-      }
-    }
-
-    const activeLink =
-      document.querySelector('a[href*="/local/"][data-state="active"]') ||
-      document.querySelector('a[href*="/remote/"][data-state="active"]');
-    if (activeLink) {
-      const info = extractThreadInfoFromLink(activeLink);
-      if (info && info.threadId) {
-        rememberCurrentThread(info);
-        return lastKnownCurrentThread;
-      }
-    }
-
-    return lastKnownCurrentThread;
   }
 
   function getCurrentThreadPayload() {
@@ -668,16 +625,28 @@
     }
   }
 
+  function markSidebarContextElements() {
+    const patch = { [VSCODE_CONTEXT_KEY]: VSCODE_CONTEXT_VALUE };
+    mergeVsCodeContext(document.documentElement, patch);
+    if (document.body) {
+      mergeVsCodeContext(document.body, patch);
+    }
+  }
+
   function markThreadContextElement(element) {
     if (!(element instanceof Element)) return;
     const row = closestThreadRow(element) || element;
-    mergeVsCodeContext(row, { [VSCODE_CONTEXT_KEY]: VSCODE_CONTEXT_VALUE });
-    if (element !== row) {
-      mergeVsCodeContext(element, { [VSCODE_CONTEXT_KEY]: VSCODE_CONTEXT_VALUE });
+    const title = findTitleNodeInRow(row) || (element.matches(THREAD_TITLE_SELECTOR) ? element : null);
+    const patch = { [VSCODE_CONTEXT_KEY]: VSCODE_CONTEXT_VALUE };
+    mergeVsCodeContext(row, patch);
+    mergeVsCodeContext(element, patch);
+    if (title) {
+      mergeVsCodeContext(title, patch);
     }
   }
 
   function markThreadContextElements(root = document) {
+    markSidebarContextElements();
     if (root instanceof Element && root.matches(THREAD_MARK_SELECTOR)) {
       markThreadContextElement(root);
     }
@@ -698,11 +667,13 @@
   }
 
   document.addEventListener('contextmenu', (event) => {
+    markSidebarContextElements();
     const titleNode = closestThreadTitleNode(event.target);
     if (!titleNode) {
-      lastKnownContextThread = null;
+      clearContextThread();
       return;
     }
+    markThreadContextElement(titleNode);
     const info = extractThreadInfo(titleNode);
     reportContextThread(info);
   }, true);
@@ -724,7 +695,7 @@
 
   document.addEventListener('click', (event) => {
     if (event.target instanceof Element && !closestThreadTitleNode(event.target)) {
-      lastKnownContextThread = null;
+      clearContextThread();
     }
   }, true);
 

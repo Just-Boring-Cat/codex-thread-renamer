@@ -234,7 +234,7 @@ function patchPackageJson(file, dryRun, logs) {
   });
   upsertCommand(pkg.contributes.commands, {
     command: 'chatgpt.renameThreadInline',
-    title: 'Rename Thread',
+    title: 'Rename Thread in Codex Sidebar',
     category: 'Codex',
   });
   upsertCommand(pkg.contributes.commands, {
@@ -255,6 +255,7 @@ function patchPackageJson(file, dryRun, logs) {
     command: 'chatgpt.renameThreadRememberContext',
     when: 'false',
   });
+  removeMenuItem(commandPalette, 'chatgpt.renameThreadFromMenu');
 
   upsertKeybinding(pkg.contributes.keybindings, {
     command: 'chatgpt.renameThreadInline',
@@ -269,11 +270,13 @@ function patchPackageJson(file, dryRun, logs) {
   upsertMenuItem(webviewContext, {
     command: 'chatgpt.renameThreadInline',
     when: "(webviewId == 'chatgpt.sidebarView' || webviewId == 'chatgpt.sidebarSecondaryView') && codexThreadRenamer == 'thread'",
-    group: 'navigation@1',
+    group: 'z_codexThreadActions@1',
   });
   preserveNewThreadMenuItem(webviewContext);
   moveMenuItemBefore(webviewContext, 'chatgpt.renameThreadInline', 'chatgpt.newChat');
   removeMenuItem(webviewContext, 'chatgpt.renameThread');
+  removeMenuItem(webviewContext, 'chatgpt.renameThreadFromMenu');
+  removeCommand(pkg.contributes.commands, 'chatgpt.renameThreadFromMenu');
 
   const updated = JSON.stringify(pkg, null, 2) + '\n';
   writeIfChanged(file, raw, updated, dryRun, logs);
@@ -304,6 +307,14 @@ function upsertCommand(commands, command) {
   }
 }
 
+function removeCommand(commands, command) {
+  for (let i = commands.length - 1; i >= 0; i--) {
+    if (commands[i] && commands[i].command === command) {
+      commands.splice(i, 1);
+    }
+  }
+}
+
 function upsertKeybinding(keybindings, keybinding) {
   const idx = keybindings.findIndex((entry) => entry && entry.command === keybinding.command);
   if (idx >= 0) {
@@ -331,13 +342,13 @@ function upsertMenuItem(menuItems, menuItem) {
 }
 
 function preserveNewThreadMenuItem(menuItems) {
-  const newThreadWhen = "(webviewId == 'chatgpt.sidebarView' || webviewId == 'chatgpt.sidebarSecondaryView') && chatgpt.supportsNewChatMenu";
+  const newThreadWhen = "(webviewId == 'chatgpt.sidebarView' || webviewId == 'chatgpt.sidebarSecondaryView') && codexThreadRenamer == 'thread'";
   const idx = menuItems.findIndex((entry) => entry && entry.command === 'chatgpt.newChat');
   if (idx >= 0) {
     menuItems[idx] = {
       ...menuItems[idx],
       when: newThreadWhen,
-      group: 'navigation@2',
+      group: 'z_codexThreadActions@2',
     };
   }
 }

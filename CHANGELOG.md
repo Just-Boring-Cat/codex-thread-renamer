@@ -16,7 +16,8 @@ Compatibility update for newer `openai.chatgpt` extension builds.
 
 - Canceling rename input now exits silently instead of showing an error toast.
 - Live title updates now patch both older `data-thread-title` nodes and newer sidebar title nodes.
-- Right-click rename no longer replaces the original menu; it marks the selected row and uses the native menu item above `New Thread`.
+- Right-click rename no longer replaces the original menu; the native menu now keeps `Rename Thread in Codex Sidebar` above `New Thread in Codex Sidebar`.
+- Sidebar right-clicks outside a thread row now show both Codex sidebar actions.
 - The Command Palette rename flow now starts inline rename for the current thread when one is active, and falls back to the thread picker outside a thread.
 
 ## 0.1.0 - 2026-02-22

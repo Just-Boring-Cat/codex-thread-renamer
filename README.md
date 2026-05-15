@@ -52,7 +52,7 @@ Use `verify` before `apply`, and reapply after updating the OpenAI extension.
 ## What It Adds
 
 - `Rename Codex Thread` command in the Command Palette
-- `Rename Thread` added to the original Codex thread right-click menu above `New Thread`
+- `Rename Thread in Codex Sidebar` added to the original Codex sidebar right-click menu, directly above `New Thread in Codex Sidebar`
 - Inline title editing for the selected or current Codex thread
 - `Cmd+R` / `Ctrl+R` rename shortcut for Codex sidebar and conversation editor contexts
 - Live title updates in the open Codex UI
@@ -77,7 +77,7 @@ After patching and reloading VS Code:
 2. Rename a thread using either:
    - Command Palette -> `Rename Codex Thread` while inside a thread to rename the current thread inline
    - Command Palette -> `Rename Codex Thread` outside a thread to choose from the thread list
-   - Right-click a thread title -> `Rename Thread`
+   - Right-click the Codex sidebar -> `Rename Thread in Codex Sidebar`
    - `Cmd+R` / `Ctrl+R` when the Codex sidebar or conversation editor is active
 
 ## Commands
