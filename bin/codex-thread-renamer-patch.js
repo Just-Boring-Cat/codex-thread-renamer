@@ -94,6 +94,7 @@ function buildTarget(extensionDir) {
   const runtimeOutFile = path.join(extDir, 'out', RUNTIME_FILE);
   const webviewOutFile = path.join(webviewAssetsDir, WEBVIEW_FILE);
   const bundleFile = findWebviewBundleFile(webviewAssetsDir);
+  const webviewBundleFiles = findWebviewBundleFiles(webviewAssetsDir);
   return {
     extDir,
     packageJson,
@@ -103,6 +104,7 @@ function buildTarget(extensionDir) {
     runtimeOutFile,
     webviewOutFile,
     bundleFile,
+    webviewBundleFiles,
     runtimePatchSource: path.join(PATCHES_DIR, RUNTIME_FILE),
     webviewPatchSource: path.join(PATCHES_DIR, WEBVIEW_FILE),
   };
@@ -125,6 +127,14 @@ function findWebviewBundleFile(assetsDir) {
   return name ? path.join(assetsDir, name) : null;
 }
 
+function findWebviewBundleFiles(assetsDir) {
+  if (!fs.existsSync(assetsDir)) return [];
+  return fs.readdirSync(assetsDir)
+    .filter((n) => n.endsWith('.js') && n !== WEBVIEW_FILE)
+    .sort()
+    .map((n) => path.join(assetsDir, n));
+}
+
 function verifyTarget(target) {
   const checks = [];
   const mustExist = [
@@ -143,18 +153,26 @@ function verifyTarget(target) {
   }
 
   const extensionJs = fs.readFileSync(target.extensionJs, 'utf8');
-  const bundle = fs.readFileSync(target.bundleFile, 'utf8');
+  const webviewBundles = readExistingFiles(target.webviewBundleFiles);
   const indexHtml = fs.readFileSync(target.webviewIndexHtml, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(target.packageJson, 'utf8'));
 
   checks.push(result('Signature: extension handles open-vscode-command', extensionJs.includes('case"open-vscode-command"') || extensionJs.includes('case"open-vscode-command":'), 'required for webview -> command bridge'));
   checks.push(result('Signature: extension registers webview provider', extensionJs.includes('registerWebviewViewProvider('), 'required for capturing provider'));
-  checks.push(result('Signature: webview supports thread-title-updated', bundle.includes('thread-title-updated'), 'required for live UI title update'));
-  checks.push(result('Signature: webview thread rows expose data-thread-title', bundle.includes('data-thread-title'), 'required for right-click rename hook'));
+  checks.push(result('Signature: webview supports thread-title-updated', webviewBundles.includes('thread-title-updated'), 'required for live UI title update'));
+  checks.push(result('Signature: webview thread rows expose data-thread-title', webviewBundles.includes('data-thread-title'), 'required for right-click rename hook'));
+  checks.push(result('Signature: webview exposes thread rename action', webviewBundles.includes('rename-thread'), 'required for thread action compatibility'));
   checks.push(result('Signature: webview index loads module bundle', /<script\s+type="module"[^>]*src="\.\/assets\/index-.*\.js"/.test(indexHtml), 'required to inject helper script'));
   checks.push(result('Package contributes.commands exists', Array.isArray(pkg?.contributes?.commands), 'required for adding command'));
 
   return { ok: checks.every((c) => c.ok), target, checks };
+}
+
+function readExistingFiles(files) {
+  return files
+    .filter((file) => fs.existsSync(file))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
 }
 
 function inspectStatus(target) {
@@ -168,9 +186,7 @@ function inspectStatus(target) {
     try { pkg = JSON.parse(fs.readFileSync(target.packageJson, 'utf8')); } catch {}
   }
   const commandPresent = !!pkg?.contributes?.commands?.some?.((c) => c.command === 'chatgpt.renameThread');
-  const webviewMenuPresent = !!pkg?.contributes?.menus?.['webview/context']?.some?.((m) => m.command === 'chatgpt.renameThread');
   checks.push(result('Package command chatgpt.renameThread', commandPresent, 'package.json'));
-  checks.push(result('Package webview/context menu entry', webviewMenuPresent, 'package.json'));
   if (fs.existsSync(target.extensionJs)) {
     const s = fs.readFileSync(target.extensionJs, 'utf8');
     checks.push(result('extension.js runtime loader marker', s.includes(EXTENSION_JS_MARKER), 'out/extension.js'));
@@ -208,6 +224,7 @@ function patchPackageJson(file, dryRun, logs) {
   const pkg = JSON.parse(raw);
   pkg.contributes = pkg.contributes || {};
   pkg.contributes.commands = Array.isArray(pkg.contributes.commands) ? pkg.contributes.commands : [];
+  pkg.contributes.keybindings = Array.isArray(pkg.contributes.keybindings) ? pkg.contributes.keybindings : [];
   pkg.contributes.menus = pkg.contributes.menus || {};
 
   upsertCommand(pkg.contributes.commands, {
@@ -215,21 +232,51 @@ function patchPackageJson(file, dryRun, logs) {
     title: 'Rename Codex Thread',
     category: 'Codex',
   });
+  upsertCommand(pkg.contributes.commands, {
+    command: 'chatgpt.renameThreadInline',
+    title: 'Rename Thread in Codex Sidebar',
+    category: 'Codex',
+  });
+  upsertCommand(pkg.contributes.commands, {
+    command: 'chatgpt.renameThreadRememberContext',
+    title: 'Remember Codex Thread Rename Context',
+    category: 'Codex',
+  });
 
   const commandPalette = ensureLiteralMenuArray(pkg.contributes.menus, 'commandPalette');
   if (!commandPalette.some((m) => m.command === 'chatgpt.renameThread')) {
     commandPalette.push({ command: 'chatgpt.renameThread' });
   }
+  upsertMenuItem(commandPalette, {
+    command: 'chatgpt.renameThreadInline',
+    when: 'false',
+  });
+  upsertMenuItem(commandPalette, {
+    command: 'chatgpt.renameThreadRememberContext',
+    when: 'false',
+  });
+  removeMenuItem(commandPalette, 'chatgpt.renameThreadFromMenu');
+
+  upsertKeybinding(pkg.contributes.keybindings, {
+    command: 'chatgpt.renameThreadInline',
+    key: 'ctrl+r',
+    mac: 'cmd+r',
+    when: "webviewId == 'chatgpt.sidebarView' || activeCustomEditorId == 'chatgpt.conversationEditor'",
+  });
+  removeKeybinding(pkg.contributes.keybindings, 'chatgpt.renameThread');
 
   cleanupLegacyNestedWebviewMenuShape(pkg.contributes.menus);
   const webviewContext = ensureLiteralMenuArray(pkg.contributes.menus, 'webview/context');
-  if (!webviewContext.some((m) => m.command === 'chatgpt.renameThread')) {
-    webviewContext.push({
-      command: 'chatgpt.renameThread',
-      when: "webviewId == 'chatgpt.sidebarView'",
-      group: 'navigation@99',
-    });
-  }
+  upsertMenuItem(webviewContext, {
+    command: 'chatgpt.renameThreadInline',
+    when: "(webviewId == 'chatgpt.sidebarView' || webviewId == 'chatgpt.sidebarSecondaryView') && codexThreadRenamer == 'thread'",
+    group: 'z_codexThreadActions@1',
+  });
+  preserveNewThreadMenuItem(webviewContext);
+  moveMenuItemBefore(webviewContext, 'chatgpt.renameThreadInline', 'chatgpt.newChat');
+  removeMenuItem(webviewContext, 'chatgpt.renameThread');
+  removeMenuItem(webviewContext, 'chatgpt.renameThreadFromMenu');
+  removeCommand(pkg.contributes.commands, 'chatgpt.renameThreadFromMenu');
 
   const updated = JSON.stringify(pkg, null, 2) + '\n';
   writeIfChanged(file, raw, updated, dryRun, logs);
@@ -258,6 +305,70 @@ function upsertCommand(commands, command) {
   } else {
     commands.push(command);
   }
+}
+
+function removeCommand(commands, command) {
+  for (let i = commands.length - 1; i >= 0; i--) {
+    if (commands[i] && commands[i].command === command) {
+      commands.splice(i, 1);
+    }
+  }
+}
+
+function upsertKeybinding(keybindings, keybinding) {
+  const idx = keybindings.findIndex((entry) => entry && entry.command === keybinding.command);
+  if (idx >= 0) {
+    keybindings[idx] = { ...keybindings[idx], ...keybinding };
+  } else {
+    keybindings.push(keybinding);
+  }
+}
+
+function removeKeybinding(keybindings, command) {
+  for (let i = keybindings.length - 1; i >= 0; i--) {
+    if (keybindings[i] && keybindings[i].command === command) {
+      keybindings.splice(i, 1);
+    }
+  }
+}
+
+function upsertMenuItem(menuItems, menuItem) {
+  const idx = menuItems.findIndex((entry) => entry && entry.command === menuItem.command);
+  if (idx >= 0) {
+    menuItems[idx] = { ...menuItems[idx], ...menuItem };
+  } else {
+    menuItems.push(menuItem);
+  }
+}
+
+function preserveNewThreadMenuItem(menuItems) {
+  const newThreadWhen = "(webviewId == 'chatgpt.sidebarView' || webviewId == 'chatgpt.sidebarSecondaryView') && codexThreadRenamer == 'thread'";
+  const idx = menuItems.findIndex((entry) => entry && entry.command === 'chatgpt.newChat');
+  if (idx >= 0) {
+    menuItems[idx] = {
+      ...menuItems[idx],
+      when: newThreadWhen,
+      group: 'z_codexThreadActions@2',
+    };
+  }
+}
+
+function removeMenuItem(menuItems, command) {
+  for (let i = menuItems.length - 1; i >= 0; i--) {
+    if (menuItems[i] && menuItems[i].command === command) {
+      menuItems.splice(i, 1);
+    }
+  }
+}
+
+function moveMenuItemBefore(menuItems, command, beforeCommand) {
+  const from = menuItems.findIndex((entry) => entry && entry.command === command);
+  const to = menuItems.findIndex((entry) => entry && entry.command === beforeCommand);
+  if (from < 0 || to < 0 || from < to) {
+    return;
+  }
+  const [entry] = menuItems.splice(from, 1);
+  menuItems.splice(to, 0, entry);
 }
 
 function patchExtensionJs(file, dryRun, logs) {

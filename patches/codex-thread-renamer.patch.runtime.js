@@ -8,6 +8,7 @@ const readline = require('readline');
 
 const PATCH_NS = '__codexThreadRenamerPatchRuntime__';
 const RUNTIME_VERSION = '0.1.0';
+const TRACE_FILE = path.join(os.tmpdir(), 'codex-thread-renamer-runtime.log');
 
 function installRuntimePatch() {
   const parent = module.parent;
@@ -28,6 +29,13 @@ function installRuntimePatch() {
     output: null,
     patchedActivate: false,
     patchedRegistrations: false,
+    webviewMessageHooked: false,
+    hookedWebviews: new WeakSet(),
+    currentThreadRequestSeq: 0,
+    pendingCurrentThreadRequests: new Map(),
+    inlineRenameRequestSeq: 0,
+    pendingInlineRenameRequests: new Map(),
+    lastContextThread: null,
   };
   globalThis[PATCH_NS] = state;
 
@@ -45,7 +53,7 @@ function installRuntimePatch() {
       // ignore
     }
   }
-  wrapActivate(parent, vscode, state);
+  tryWrapActivate(parent, vscode, state);
 }
 
 function patchProviderCapture(vscode, state) {
@@ -56,7 +64,7 @@ function patchProviderCapture(vscode, state) {
 
   const originalRegisterWebviewViewProvider = vscode.window.registerWebviewViewProvider.bind(vscode.window);
   vscode.window.registerWebviewViewProvider = function patchedRegisterWebviewViewProvider(viewType, provider, options) {
-    if (viewType === 'chatgpt.sidebarView' && provider) {
+    if ((viewType === 'chatgpt.sidebarView' || viewType === 'chatgpt.sidebarSecondaryView') && provider) {
       state.provider = provider;
     }
     return originalRegisterWebviewViewProvider(viewType, provider, options);
@@ -71,18 +79,25 @@ function patchProviderCapture(vscode, state) {
   };
 }
 
-function wrapActivate(parent, vscode, state) {
+function tryWrapActivate(parent, vscode, state) {
   if (state.patchedActivate) {
     return;
   }
-  state.patchedActivate = true;
 
-  const originalActivate = parent.exports.activate;
+  const exportsObject = parent.exports;
+  if (!exportsObject) {
+    return;
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(exportsObject, 'activate');
+  const originalActivate = descriptor && typeof descriptor.get === 'function'
+    ? descriptor.get.call(exportsObject)
+    : exportsObject.activate;
   if (typeof originalActivate !== 'function') {
     return;
   }
 
-  parent.exports.activate = async function patchedActivate(context) {
+  const patchedActivate = async function patchedActivate(context) {
     const result = await originalActivate.apply(this, arguments);
     try {
       ensureOutput(vscode, state);
@@ -98,6 +113,22 @@ function wrapActivate(parent, vscode, state) {
     }
     return result;
   };
+
+  if (descriptor && descriptor.configurable) {
+    Object.defineProperty(exportsObject, 'activate', {
+      configurable: true,
+      enumerable: descriptor.enumerable !== false,
+      writable: true,
+      value: patchedActivate,
+    });
+    state.patchedActivate = true;
+    return;
+  }
+
+  if (!descriptor || descriptor.writable) {
+    exportsObject.activate = patchedActivate;
+    state.patchedActivate = true;
+  }
 }
 
 function ensureOutput(vscode, state) {
@@ -113,28 +144,43 @@ function registerRenameCommand(vscode, context, state) {
   }
   state.commandRegistered = true;
 
-  const disposable = vscode.commands.registerCommand('chatgpt.renameThread', async (args) => {
+  const renameCommands = [
+    ['chatgpt.renameThread', { mode: 'smart' }],
+    ['chatgpt.renameThreadInline', { mode: 'inline' }],
+  ].map(([commandId, options]) => vscode.commands.registerCommand(commandId, async (args) => {
     const output = ensureOutput(vscode, state);
     try {
-      await runRenameCommand(vscode, context, state, args);
+      await runRenameCommand(vscode, context, state, args, options);
     } catch (error) {
       output.appendLine(`[error] ${formatError(error)}`);
       vscode.window.showErrorMessage(`Codex rename patch: ${formatError(error)}`);
     }
+  }));
+
+  const rememberContextCommand = vscode.commands.registerCommand('chatgpt.renameThreadRememberContext', (args) => {
+    const output = ensureOutput(vscode, state);
+    const contextThread = normalizeContextThreadArgs(args);
+    state.lastContextThread = contextThread ? { ...contextThread, at: Date.now() } : null;
+    trace(output, 'remember-context-thread', state.lastContextThread);
   });
 
-  state.commandDisposable = disposable;
+  const disposables = [...renameCommands, rememberContextCommand];
+
+  state.commandDisposable = disposables;
   if (context && context.subscriptions && Array.isArray(context.subscriptions)) {
-    context.subscriptions.push(disposable);
+    for (const disposable of disposables) {
+      context.subscriptions.push(disposable);
+    }
     if (state.output) {
       context.subscriptions.push(state.output);
     }
   }
 }
 
-async function runRenameCommand(vscode, context, state, args) {
+async function runRenameCommand(vscode, context, state, args, options = { mode: 'picker' }) {
   const output = ensureOutput(vscode, state);
   ensureBinaryAvailable('sqlite3', '--version');
+  ensureWebviewMessageHook(vscode, state);
 
   const normalized = normalizeCommandArgs(args);
   const workspaceFolder = pickWorkspaceFolder(vscode);
@@ -142,6 +188,11 @@ async function runRenameCommand(vscode, context, state, args) {
   const workspaceStorageDir = findWorkspaceStorageDirForFolder(codeUserDir, workspaceFolder.uri.toString());
   const workspaceDb = path.join(workspaceStorageDir, 'state.vscdb');
   assertFileExists(workspaceDb, 'Workspace state DB not found');
+  trace(output, 'runRenameCommand:start', {
+    workspaceFolder: workspaceFolder.uri.toString(),
+    workspaceStorageDir,
+    normalized,
+  });
 
   let threads = readCodexThreadsFromWorkspaceCache(workspaceDb);
   if (threads.length === 0 && normalized.threadId) {
@@ -150,20 +201,61 @@ async function runRenameCommand(vscode, context, state, args) {
   if (threads.length === 0) {
     throw new Error('No Codex threads found in workspace cache.');
   }
+  trace(output, 'runRenameCommand:threads', {
+    count: threads.length,
+    active: threads.filter((thread) => Number(thread.status) === 2).map((thread) => ({
+      threadId: thread.threadId,
+      label: thread.label,
+      status: thread.status,
+    })),
+  });
 
-  let thread = null;
+  let resolved = null;
   if (normalized.threadId) {
-    thread = threads.find((t) => t.threadId === normalized.threadId) || {
-      threadId: normalized.threadId,
-      kind: 'local',
-      label: normalized.threadId,
-      resource: '',
+    resolved = {
+      source: 'explicit',
+      thread: threads.find((thread) => thread.threadId === normalized.threadId) || {
+        threadId: normalized.threadId,
+        kind: 'local',
+        label: normalized.threadId,
+        resource: '',
+      },
     };
+  } else if (options.mode === 'inline' || options.mode === 'smart') {
+    resolved = await resolveThreadForRename(vscode, state, normalized, threads, output);
   } else {
-    thread = await pickThread(vscode, threads);
+    resolved = {
+      source: 'picker',
+      thread: await pickThread(vscode, threads),
+    };
   }
 
+  const thread = resolved.thread;
+  if (!thread) {
+    output.appendLine('[info] rename cancelled');
+    return;
+  }
+  trace(output, 'runRenameCommand:resolved', {
+    mode: options.mode || 'picker',
+    source: resolved.source,
+    threadId: thread?.threadId || null,
+    label: thread?.label || null,
+    status: thread?.status ?? null,
+  });
+
   let newName = normalized.name;
+  const shouldStartInlineRename = !newName && resolved.source !== 'picker' && (options.mode === 'inline' || options.mode === 'smart');
+  if (shouldStartInlineRename) {
+    const startedInlineRename = await requestInlineRename(vscode, state, {
+      threadId: thread.threadId,
+      title: thread.label || '',
+    }, output);
+    if (startedInlineRename) {
+      output.appendLine('[info] inline rename started in Codex webview');
+      return;
+    }
+    throw new Error('Could not start inline rename for the selected Codex thread.');
+  }
   if (!newName) {
     newName = await promptForThreadName(vscode, thread.label || '');
     if (newName == null) {
@@ -233,6 +325,398 @@ function normalizeCommandArgs(args) {
   return { threadId: null, name: null };
 }
 
+function normalizeContextThreadArgs(args) {
+  const value = Array.isArray(args) ? args[0] : args;
+  if (!isObject(value)) return null;
+  const threadId = typeof value.threadId === 'string' ? normalizeThreadId(value.threadId, value.kind) : null;
+  if (!threadId) return null;
+  return {
+    threadId,
+    kind: typeof value.kind === 'string' && value.kind ? value.kind : 'local',
+    label: typeof value.title === 'string' && value.title ? value.title : threadId,
+    resource: typeof value.resource === 'string' ? value.resource : '',
+  };
+}
+
+function normalizeThreadId(value, kind) {
+  if (!value) return null;
+  const id = String(value).trim();
+  if (!id) return null;
+  if (kind === 'local' && id.startsWith('local:')) return id.slice('local:'.length);
+  if (kind === 'remote' && id.startsWith('remote:')) return id.slice('remote:'.length);
+  if (kind === 'pending-worktree' && id.startsWith('pending-worktree:')) return id.slice('pending-worktree:'.length);
+  if (id.startsWith('local:')) return id.slice('local:'.length);
+  if (id.startsWith('remote:')) return id.slice('remote:'.length);
+  return id;
+}
+
+async function resolveThreadForRename(vscode, state, normalized, threads, output) {
+  if (normalized.threadId) {
+    return {
+      source: 'explicit',
+      thread: threads.find((t) => t.threadId === normalized.threadId) || {
+        threadId: normalized.threadId,
+        kind: 'local',
+        label: normalized.threadId,
+        resource: '',
+      },
+    };
+  }
+
+  const contextThread = consumeRecentContextThread(state, threads, output);
+  if (contextThread) {
+    return { source: 'context-menu', thread: contextThread };
+  }
+
+  const sidebarThread = await queryCurrentSidebarThread(vscode, state, output);
+  trace(output, 'resolveThreadForRename:sidebarThread', sidebarThread);
+  if (sidebarThread) {
+    if (sidebarThread.threadId) {
+      const known = threads.find((thread) => thread.threadId === sidebarThread.threadId);
+      if (known) {
+        return { source: 'sidebar-current', thread: known };
+      }
+      return {
+        source: 'sidebar-current',
+        thread: {
+          threadId: sidebarThread.threadId,
+          kind: sidebarThread.kind || 'local',
+          label: sidebarThread.title || sidebarThread.threadId,
+          resource: sidebarThread.resource || '',
+        },
+      };
+    }
+
+    const matchedByTitle = matchSidebarThreadByTitle(sidebarThread.title, threads);
+    if (matchedByTitle) {
+      return { source: 'sidebar-current', thread: matchedByTitle };
+    }
+  }
+
+  const activeThread = findActiveThreadForRename(vscode, threads);
+  if (activeThread) {
+    trace(output, 'resolveThreadForRename:active-tab', {
+      threadId: activeThread.threadId,
+      label: activeThread.label,
+    });
+    return { source: 'active-tab', thread: activeThread };
+  }
+
+  trace(output, 'resolveThreadForRename:picker', { threadCount: threads.length });
+  return { source: 'picker', thread: await pickThread(vscode, threads) };
+}
+
+function consumeRecentContextThread(state, threads, output) {
+  const contextThread = state.lastContextThread;
+  state.lastContextThread = null;
+  if (!contextThread || !contextThread.threadId) {
+    return null;
+  }
+  const ageMs = Date.now() - Number(contextThread.at || 0);
+  if (ageMs < 0 || ageMs > 15000) {
+    trace(output, 'context-thread:expired', { threadId: contextThread.threadId, ageMs });
+    return null;
+  }
+  const known = threads.find((thread) => thread.threadId === contextThread.threadId);
+  if (known) {
+    trace(output, 'context-thread:known', { threadId: known.threadId, label: known.label, ageMs });
+    return known;
+  }
+  trace(output, 'context-thread:synthetic', { threadId: contextThread.threadId, label: contextThread.label, ageMs });
+  return {
+    threadId: contextThread.threadId,
+    kind: contextThread.kind || 'local',
+    label: contextThread.label || contextThread.threadId,
+    resource: contextThread.resource || '',
+  };
+}
+
+function matchSidebarThreadByTitle(title, threads) {
+  const normalizedTitle = normalizeThreadTitle(title);
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  const exact = threads.filter((thread) => normalizeThreadTitle(thread.label) === normalizedTitle);
+  if (exact.length === 1) {
+    return exact[0];
+  }
+
+  const contains = threads.filter((thread) => {
+    const label = normalizeThreadTitle(thread.label);
+    return label && (label.includes(normalizedTitle) || normalizedTitle.includes(label));
+  });
+  if (contains.length === 1) {
+    return contains[0];
+  }
+
+  return null;
+}
+
+function normalizeThreadTitle(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function findSingleInProgressThread(threads) {
+  const active = threads.filter((thread) => Number(thread.status) === 2);
+  return active.length === 1 ? active[0] : null;
+}
+
+function findMostRecentThread(threads) {
+  const ranked = threads
+    .filter((thread) => Number(thread.lastActivity || 0) > 0)
+    .sort((a, b) => Number(b.lastActivity || 0) - Number(a.lastActivity || 0));
+  if (ranked.length === 0) {
+    return null;
+  }
+  if (ranked.length === 1) {
+    return ranked[0];
+  }
+
+  const first = Number(ranked[0].lastActivity || 0);
+  const second = Number(ranked[1].lastActivity || 0);
+  if (first > second) {
+    return ranked[0];
+  }
+  return null;
+}
+
+function findActiveThreadForRename(vscode, threads) {
+  const activeTab = vscode.window?.tabGroups?.activeTabGroup?.activeTab || null;
+  const activeRef = extractThreadRefFromTab(activeTab);
+  if (activeRef) {
+    const known = threads.find((thread) => thread.threadId === activeRef.threadId);
+    if (known) {
+      return known;
+    }
+    return {
+      threadId: activeRef.threadId,
+      kind: activeRef.kind || 'local',
+      label: activeTab?.label || activeRef.threadId,
+      resource: activeRef.resource || '',
+    };
+  }
+
+  return null;
+}
+
+function extractThreadRefFromTab(tab) {
+  if (!tab || !tab.input) return null;
+  const input = tab.input;
+  if (typeof input.viewType === 'string' && input.viewType !== 'chatgpt.conversationEditor') {
+    return null;
+  }
+
+  const inputs = [];
+  if (input.uri) inputs.push(input.uri);
+  if (input.modified) inputs.push(input.modified);
+  if (input.original) inputs.push(input.original);
+
+  for (const candidate of inputs) {
+    const ref = extractThreadRefFromUri(candidate);
+    if (ref) {
+      return ref;
+    }
+  }
+
+  return null;
+}
+
+function extractThreadRefFromUri(uri) {
+  if (!uri) return null;
+
+  let value = '';
+  if (typeof uri === 'string') {
+    value = uri;
+  } else if (typeof uri.toString === 'function') {
+    try {
+      value = uri.toString(true);
+    } catch {
+      value = uri.toString();
+    }
+  }
+
+  if (!value) return null;
+
+  const match = value.match(/\/(local|remote)\/([^/?#]+)/);
+  if (!match) return null;
+  return {
+    kind: match[1],
+    threadId: decodeURIComponent(match[2]),
+    resource: value,
+  };
+}
+
+function ensureWebviewMessageHook(vscode, state) {
+  const provider = state.provider;
+  if (!provider) {
+    return;
+  }
+
+  const webviews = [];
+  if (provider.sidebarView?.webview) {
+    webviews.push(provider.sidebarView.webview);
+  }
+  if (provider.editorPanels && typeof provider.getWebviewForPanel === 'function') {
+    for (const panel of Array.from(provider.editorPanels.keys())) {
+      const webview = provider.getWebviewForPanel(panel);
+      if (webview) webviews.push(webview);
+    }
+  }
+
+  for (const webview of webviews) {
+    if (!webview || typeof webview.onDidReceiveMessage !== 'function') continue;
+    if (state.hookedWebviews.has(webview)) continue;
+    webview.onDidReceiveMessage((message) => {
+      handleRuntimeWebviewMessage(state, message);
+    });
+    state.hookedWebviews.add(webview);
+    state.webviewMessageHooked = true;
+  }
+}
+
+function handleRuntimeWebviewMessage(state, message) {
+  if (!message) {
+    return;
+  }
+  if (message.type === 'codex-thread-renamer/current-thread-response') {
+    const requestId = typeof message.requestId === 'number' ? message.requestId : null;
+    if (requestId == null) {
+      return;
+    }
+    const pending = state.pendingCurrentThreadRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    state.pendingCurrentThreadRequests.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(message.payload || null);
+    return;
+  }
+  if (message.type === 'codex-thread-renamer/inline-rename-response') {
+    const requestId = typeof message.requestId === 'number' ? message.requestId : null;
+    if (requestId == null) {
+      return;
+    }
+    const pending = state.pendingInlineRenameRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    if (message.ok === true) {
+      state.pendingInlineRenameRequests.delete(requestId);
+      clearTimeout(pending.timer);
+      pending.resolve(true);
+    }
+  }
+}
+
+async function requestInlineRename(vscode, state, thread, output) {
+  ensureWebviewMessageHook(vscode, state);
+  const provider = state.provider;
+  if (!provider || typeof provider.postMessageToWebview !== 'function') {
+    return false;
+  }
+
+  const requestId = ++state.inlineRenameRequestSeq;
+  const result = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      state.pendingInlineRenameRequests.delete(requestId);
+      resolve(false);
+    }, 1000);
+    state.pendingInlineRenameRequests.set(requestId, { resolve, timer });
+    try {
+      const sent = postMessageToKnownWebviews(provider, {
+        type: 'codex-thread-renamer/start-inline-rename',
+        requestId,
+        payload: thread,
+      }, output);
+      if (!sent) {
+        clearTimeout(timer);
+        state.pendingInlineRenameRequests.delete(requestId);
+        resolve(false);
+      }
+    } catch (error) {
+      clearTimeout(timer);
+      state.pendingInlineRenameRequests.delete(requestId);
+      if (output) {
+        output.appendLine(`[warn] inline-rename request failed: ${formatError(error)}`);
+      }
+      resolve(false);
+    }
+  });
+
+  if (output) {
+    output.appendLine(`[info] inline-rename-response=${result ? 'started' : 'not-started'}`);
+  }
+  return result;
+}
+
+function postMessageToKnownWebviews(provider, message, output) {
+  let sent = false;
+  try {
+    if (provider.sidebarView && provider.sidebarView.webview && typeof provider.postMessageToWebview === 'function') {
+      provider.postMessageToWebview(provider.sidebarView.webview, message);
+      sent = true;
+    }
+  } catch (error) {
+    if (output) output.appendLine(`[warn] sidebar webview post failed: ${formatError(error)}`);
+  }
+
+  try {
+    if (provider.editorPanels && typeof provider.getWebviewForPanel === 'function' && typeof provider.postMessageToWebview === 'function') {
+      for (const panel of Array.from(provider.editorPanels.keys())) {
+        const webview = provider.getWebviewForPanel(panel);
+        if (!webview) continue;
+        provider.postMessageToWebview(webview, message);
+        sent = true;
+      }
+    }
+  } catch (error) {
+    if (output) output.appendLine(`[warn] editor webview post failed: ${formatError(error)}`);
+  }
+
+  return sent;
+}
+
+async function queryCurrentSidebarThread(vscode, state, output) {
+  ensureWebviewMessageHook(vscode, state);
+  const provider = state.provider;
+  if (!provider || !provider.sidebarView || !provider.sidebarView.webview || typeof provider.postMessageToWebview !== 'function') {
+    return null;
+  }
+
+  const requestId = ++state.currentThreadRequestSeq;
+  const result = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      state.pendingCurrentThreadRequests.delete(requestId);
+      resolve(null);
+    }, 700);
+    state.pendingCurrentThreadRequests.set(requestId, { resolve, timer });
+    try {
+      provider.postMessageToWebview(provider.sidebarView.webview, {
+        type: 'codex-thread-renamer/get-current-thread',
+        requestId,
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      state.pendingCurrentThreadRequests.delete(requestId);
+      if (output) {
+        output.appendLine(`[warn] current-thread request failed: ${formatError(error)}`);
+      }
+      resolve(null);
+    }
+  });
+
+  if (result && output) {
+    output.appendLine(`[info] current-thread-from-sidebar=${result.threadId || 'none'}`);
+  }
+  trace(output, 'queryCurrentSidebarThread:result', result);
+  return result;
+}
+
 function pickWorkspaceFolder(vscode) {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
@@ -268,7 +752,11 @@ function findWorkspaceStorageDirForFolder(codeUserDir, folderUri) {
     try {
       const data = JSON.parse(fs.readFileSync(workspaceJson, 'utf8'));
       if (data && data.folder === folderUri) {
-        matches.push({ dir, mtimeMs: fs.statSync(dir).mtimeMs });
+        matches.push({
+          dir,
+          mtimeMs: fs.statSync(dir).mtimeMs,
+          score: scoreWorkspaceStorageDir(dir),
+        });
       }
     } catch {
       // ignore
@@ -278,8 +766,50 @@ function findWorkspaceStorageDirForFolder(codeUserDir, folderUri) {
   if (matches.length === 0) {
     throw new Error(`No workspaceStorage entry found for ${folderUri}`);
   }
-  matches.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  matches.sort((a, b) => {
+    if (b.score.activeCount !== a.score.activeCount) {
+      return b.score.activeCount - a.score.activeCount;
+    }
+    if (b.score.latestActivity !== a.score.latestActivity) {
+      return b.score.latestActivity - a.score.latestActivity;
+    }
+    return b.mtimeMs - a.mtimeMs;
+  });
   return matches[0].dir;
+}
+
+function scoreWorkspaceStorageDir(dir) {
+  try {
+    const dbPath = path.join(dir, 'state.vscdb');
+    if (!fs.existsSync(dbPath)) {
+      return { activeCount: 0, latestActivity: 0 };
+    }
+    const raw = readItemTableValue(dbPath, 'agentSessions.model.cache');
+    if (!raw) {
+      return { activeCount: 0, latestActivity: 0 };
+    }
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items)) {
+      return { activeCount: 0, latestActivity: 0 };
+    }
+
+    let activeCount = 0;
+    let latestActivity = 0;
+    for (const item of items) {
+      if (!item || item.providerType !== 'openai-codex') continue;
+      if (Number(item.status) === 2) {
+        activeCount += 1;
+      }
+      latestActivity = Math.max(
+        latestActivity,
+        Number(item?.timing?.lastRequestStarted || 0),
+        Number(item?.timing?.created || 0)
+      );
+    }
+    return { activeCount, latestActivity };
+  } catch {
+    return { activeCount: 0, latestActivity: 0 };
+  }
 }
 
 function readCodexThreadsFromWorkspaceCache(workspaceDb) {
@@ -311,6 +841,11 @@ function readCodexThreadsFromWorkspaceCache(workspaceDb) {
       kind,
       resource,
       label: typeof item.label === 'string' && item.label ? item.label : threadId,
+      status: typeof item.status === 'number' ? item.status : null,
+      lastActivity: Math.max(
+        Number(item?.timing?.lastRequestStarted || 0),
+        Number(item?.timing?.created || 0)
+      ),
     });
   }
   return threads;
@@ -332,7 +867,7 @@ async function pickThread(vscode, threads) {
     }
   );
   if (!picked) {
-    throw new Error('Rename cancelled.');
+    return null;
   }
   return picked.thread;
 }
@@ -623,6 +1158,26 @@ function stamp() {
 function formatError(error) {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function trace(output, message, payload) {
+  const line = `[trace] ${message}${payload === undefined ? '' : ` ${safeJson(payload)}`}`;
+  if (output) {
+    output.appendLine(line);
+  }
+  try {
+    fs.appendFileSync(TRACE_FILE, `${new Date().toISOString()} ${line}\n`);
+  } catch {
+    // ignore
+  }
+}
+
+function safeJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '"[unserializable]"';
+  }
 }
 
 class RpcClient {

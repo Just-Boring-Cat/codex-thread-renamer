@@ -1,6 +1,6 @@
 {
   "name": "codex-thread-renamer-patcher",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Patch the VS Code OpenAI ChatGPT/Codex extension to add live thread rename command and thread-list right-click rename.",
   "license": "MIT",
