@@ -25,6 +25,22 @@
 
 ## Common Problems
 
+## Rename Fails With Active Writer
+
+Error:
+
+- `thread/resume failed: thread ... already has an active writer`
+
+Likely cause:
+
+- An older runtime payload resumes the target from a second app-server before
+  renaming it, while Codex already owns that thread's writer.
+
+Fix:
+
+- Pull and reapply the latest patcher. The corrected runtime sends
+  `thread/name/set` directly and does not resume the target thread.
+
 ## Menu Item Appears But Command Fails
 
 Error:

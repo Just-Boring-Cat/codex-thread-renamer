@@ -1211,9 +1211,6 @@ class RpcClient {
     }, 10000);
     if (init.error) throw new Error(`initialize failed: ${JSON.stringify(init.error)}`);
 
-    const resume = await this.request('thread/resume', { threadId, persistExtendedHistory: false }, 30000);
-    if (resume.error) throw new Error(`thread/resume failed: ${JSON.stringify(resume.error)}`);
-
     const rename = await this.request('thread/name/set', { threadId, name: newName }, 10000);
     if (rename.error) throw new Error(`thread/name/set failed: ${JSON.stringify(rename.error)}`);
   }

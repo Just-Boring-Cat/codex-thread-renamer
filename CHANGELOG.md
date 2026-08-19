@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Thread rename now calls `thread/name/set` directly instead of resuming the
+  target from a second app-server, avoiding `already has an active writer`
+  failures for threads open in Codex.
+- Added a regression test covering the active-writer response.
+
 ## 0.1.1 - 2026-05-15
 
 Compatibility update for newer `openai.chatgpt` extension builds.

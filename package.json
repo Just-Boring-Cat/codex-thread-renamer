@@ -9,6 +9,7 @@
   },
   "scripts": {
     "apply": "node bin/codex-thread-renamer-patch.js apply",
+    "test": "node --test tests/*.test.js",
     "verify": "node bin/codex-thread-renamer-patch.js verify",
     "status": "node bin/codex-thread-renamer-patch.js status"
   }
